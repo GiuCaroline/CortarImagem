@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import fotoNicolle from '../assets/nicolle.png'
 
 export default function Home() {
   const [image, setImage] = useState(null);
@@ -270,7 +271,7 @@ export default function Home() {
                     <h1 className="text-3xl font-poppins font-bold text-[#d16eff]">Fatiador de Imagem</h1>
                     <p className="font-poppins text-neutral-500">Clique, segure e arraste o mouse sobre a imagem para criar cortes retos. Onde as linhas se cruzarem, novos pedaços serão criados.</p>
                 </div>
-                <img className='w-[10%] h-auto rounded-xl' src='./src/assets/nicolle.png' alt="Nicolle 💕"/>
+                <img className='w-[10%] h-auto rounded-xl' src={fotoNicolle} alt="Nicolle 💕"/>
             </div>
         </header>
 
