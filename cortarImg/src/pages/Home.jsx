@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import fotoNicolle from '../assets/nicolle.png'
+import fotoNicolle from '../assets/nicolle.png';
 
 export default function Home() {
   const [image, setImage] = useState(null);
@@ -8,16 +8,34 @@ export default function Home() {
   const [startPoint, setStartPoint] = useState(null);
   const [currentPoint, setCurrentPoint] = useState(null);
   const [pieces, setPieces] = useState([]);
+  const [zoom, setZoom] = useState(1);
+  const [baseScale, setBaseScale] = useState(1);
+  
   const canvasRef = useRef(null);
+  const containerRef = useRef(null);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
     if (file) {
       const img = new Image();
       img.onload = () => {
+        if (containerRef.current) {
+          const containerWidth = containerRef.current.clientWidth - 32;
+          const containerHeight = containerRef.current.clientHeight - 32;
+          
+          const scaleX = containerWidth / img.width;
+          const scaleY = containerHeight / img.height;
+          const bestScale = Math.min(scaleX, scaleY, 1);
+          
+          setBaseScale(bestScale);
+        } else {
+          setBaseScale(1);
+        }
+
         setImage(img);
         setLines([]);
         setPieces([]);
+        setZoom(1);
       };
       img.src = URL.createObjectURL(file);
     }
@@ -93,6 +111,15 @@ export default function Home() {
   const handleMouseDown = (e) => {
     const coords = getCoordinates(e);
     if (coords && canvasRef.current) {
+      setIsDrawing(true);
+      setStartPoint(coords);
+      setCurrentPoint(coords);
+    }
+  };
+
+  const handleDoubleClick = (e) => {
+    const coords = getCoordinates(e);
+    if (coords && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
       const scaleRatio = canvasRef.current.width / rect.width;
       const hitTolerance = 15 * scaleRatio;
@@ -108,34 +135,53 @@ export default function Home() {
 
       if (lineToRemove !== -1) {
         setLines(lines.filter((_, idx) => idx !== lineToRemove));
-        return;
       }
-
-      setIsDrawing(true);
-      setStartPoint(coords);
-      setCurrentPoint(coords);
     }
   };
 
   const handleMouseMove = (e) => {
     if (!isDrawing) return;
     const coords = getCoordinates(e);
+    
     if (coords) {
-      setCurrentPoint(coords);
+      if (e.shiftKey && startPoint) {
+        const dx = Math.abs(coords.x - startPoint.x);
+        const dy = Math.abs(coords.y - startPoint.y);
+        
+        if (dx > dy) {
+          setCurrentPoint({ x: coords.x, y: startPoint.y });
+        } else {
+          setCurrentPoint({ x: startPoint.x, y: coords.y });
+        }
+      } else {
+        setCurrentPoint(coords);
+      }
     }
   };
 
-  const handleMouseUp = () => {
+  const handleMouseUp = (e) => {
     if (isDrawing && startPoint && currentPoint && canvasRef.current) {
       const rect = canvasRef.current.getBoundingClientRect();
       const scaleRatio = canvasRef.current.width / rect.width;
       
-      const dx = currentPoint.x - startPoint.x;
-      const dy = currentPoint.y - startPoint.y;
-      const distance = Math.sqrt(dx * dx + dy * dy);
+      let finalPoint = getCoordinates(e) || currentPoint;
+
+      if (e.shiftKey && finalPoint) {
+        const dx = Math.abs(finalPoint.x - startPoint.x);
+        const dy = Math.abs(finalPoint.y - startPoint.y);
+        if (dx > dy) {
+          finalPoint = { x: finalPoint.x, y: startPoint.y };
+        } else {
+          finalPoint = { x: startPoint.x, y: finalPoint.y };
+        }
+      }
+      
+      const dxFinal = finalPoint.x - startPoint.x;
+      const dyFinal = finalPoint.y - startPoint.y;
+      const distance = Math.sqrt(dxFinal * dxFinal + dyFinal * dyFinal);
 
       if (distance > 5 * scaleRatio) {
-        setLines([...lines, { start: startPoint, end: currentPoint }]);
+        setLines([...lines, { start: startPoint, end: finalPoint }]);
       }
     }
     setIsDrawing(false);
@@ -260,6 +306,7 @@ export default function Home() {
   const clearLines = () => {
     setLines([]);
     setPieces([]);
+    setZoom(1);
   };
 
   return (
@@ -308,22 +355,55 @@ export default function Home() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 overflow-hidden">
-          <div className="lg:col-span-2 rounded-[20px] overflow-hidden bg-[#ffabf2] flex items-center justify-center min-h-[400px]">
+          <div 
+            ref={containerRef}
+            className="lg:col-span-2 rounded-[20px] bg-[#ffabf2] relative flex flex-col min-h-[400px] h-[70vh] overflow-hidden"
+          >
+            {image && (
+              <div className="absolute top-4 right-4 z-10 flex gap-2 bg-[#ffdefa] p-2 rounded-xl shadow-md">
+                <button 
+                  onClick={() => setZoom(z => Math.max(0.5, z - 0.25))} 
+                  className="bg-pink-600 hover:bg-pink-700 text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors"
+                >
+                  -
+                </button>
+                <span className="text-pink-900 font-poppins font-bold px-2 flex items-center justify-center min-w-[3rem]">
+                  {Math.round(zoom * 100)}%
+                </span>
+                <button 
+                  onClick={() => setZoom(z => Math.min(5, z + 0.25))} 
+                  className="bg-pink-600 hover:bg-pink-700 text-white w-8 h-8 rounded-lg flex items-center justify-center font-bold transition-colors"
+                >
+                  +
+                </button>
+              </div>
+            )}
+
             {!image ? (
-              <p className="text-neutral-500 font-poppins">Nenhuma imagem carregada</p>
+              <div className="flex-1 flex items-center justify-center">
+                <p className="text-neutral-500 font-poppins">Nenhuma imagem carregada</p>
+              </div>
             ) : (
               <div 
-                className="relative p-10 cursor-crosshair"
+                className="flex-1 overflow-auto p-4 grid place-items-center cursor-crosshair"
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
                 onMouseUp={handleMouseUp}
                 onMouseLeave={handleMouseUp}
+                onDoubleClick={handleDoubleClick}
               >
-                <canvas
-                  ref={canvasRef}
-                  className="max-w-full h-auto"
-                  style={{ maxHeight: '70vh' }}
-                />
+                <div 
+                  className="relative shrink-0"
+                  style={{
+                    width: `${image.width * baseScale * zoom}px`,
+                    height: `${image.height * baseScale * zoom}px`
+                  }}
+                >
+                  <canvas
+                    ref={canvasRef}
+                    className="w-full h-full block"
+                  />
+                </div>
               </div>
             )}
           </div>
