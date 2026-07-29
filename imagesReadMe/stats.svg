@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1267" height="64" viewBox="0 0 1267 64">
+  <style>
+    .draw-check {
+      stroke-dasharray: 25;
+      stroke-dashoffset: 25;
+      animation: draw 0.8s ease-in-out forwards;
+    }
+    @keyframes draw {
+      to { stroke-dashoffset: 0; }
+    }
+    .container {
+      fill: #1C1F26;
+      stroke: #3B3E45;
+      stroke-width: 1px;
+      rx: 6px;
+    }
+    .text-title {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 15px;
+      fill: #FFFFFF;
+      font-weight: 600;
+    }
+    .status-badge {
+      fill: #00BA38;
+      rx: 6px;
+    }
+    .text-status {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      font-size: 14px;
+      fill: #FFFFFF;
+      font-weight: 600;
+    }
+    .check-icon {
+      fill: none;
+      stroke: #FFFFFF;
+      stroke-width: 2.5px;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+  </style>
+
+  <rect class="container" x="1" y="1" width="1265" height="62" />
+
+  <path d="M 24 44 L 32 32 L 40 36 L 48 20" fill="none" stroke="#D1A73E" stroke-width="2"/>
+  <circle cx="24" cy="44" r="2.5" fill="#CE7A36"/>
+  <circle cx="48" cy="20" r="2.5" fill="#D1A73E"/>
+
+  <text x="64" y="37" class="text-title">Status do Projeto</text>
+
+  <g transform="translate(1097, 17)">
+    <rect class="status-badge" width="140" height="30" />
+    <g transform="translate(14, 0)">
+      <path class="check-icon draw-check" d="M 12 16 L 16 20 L 24 10" />
+    </g>
+    <text x="44" y="20" class="text-status">Concluído</text>
+  </g>
+</svg>
