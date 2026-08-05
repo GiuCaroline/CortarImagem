@@ -13,6 +13,7 @@ export default function Home() {
   
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
+  const scrollContainerRef = useRef(null);
 
   const handleImageUpload = (e) => {
     const file = e.target.files[0];
@@ -86,6 +87,49 @@ export default function Home() {
       }
     }
   }, [image, lines, isDrawing, startPoint, currentPoint]);
+
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    const handleWheel = (e) => {
+      if (e.ctrlKey) {
+        e.preventDefault();
+
+        setZoom((prevZoom) => {
+          const delta = e.deltaY < 0 ? 0.25 : -0.25;
+          const newZoom = Math.max(0.5, Math.min(5, prevZoom + delta));
+
+          if (newZoom === prevZoom) return prevZoom;
+
+          const imageContainer = container.firstElementChild;
+          if (imageContainer) {
+            const imageRect = imageContainer.getBoundingClientRect();
+            
+            const mouseXOnImage = e.clientX - imageRect.left;
+            const mouseYOnImage = e.clientY - imageRect.top;
+
+            const ratio = newZoom / prevZoom;
+            
+            const diffX = mouseXOnImage * ratio - mouseXOnImage;
+            const diffY = mouseYOnImage * ratio - mouseYOnImage;
+
+            setTimeout(() => {
+              if (scrollContainerRef.current) {
+                scrollContainerRef.current.scrollLeft += diffX;
+                scrollContainerRef.current.scrollTop += diffY;
+              }
+            }, 0);
+          }
+
+          return newZoom;
+        });
+      }
+    };
+
+    container.addEventListener('wheel', handleWheel, { passive: false });
+    return () => container.removeEventListener('wheel', handleWheel);
+  }, [image]);
 
   const getCoordinates = (e) => {
     if (!canvasRef.current) return null;
@@ -189,109 +233,145 @@ export default function Home() {
     setCurrentPoint(null);
   };
 
-  const splitPolygon = (polygon, line) => {
-    const getSide = (p, a, b) => {
-      const val = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
-      return Math.abs(val) < 1e-9 ? 0 : (val > 0 ? 1 : -1);
-    };
+  const handleCut = () => {
+    if (!image || lines.length === 0) return;
 
-    const getIntersection = (a, b, c, d) => {
-      const den = (a.x - b.x) * (c.y - d.y) - (a.y - b.y) * (c.x - d.x);
-      if (den === 0) return null;
-      const numX = (a.x * b.y - a.y * b.x) * (c.x - d.x) - (a.x - b.x) * (c.x * d.y - c.y * d.x);
-      const numY = (a.x * b.y - a.y * b.x) * (c.y - d.y) - (a.y - b.y) * (c.x * d.y - c.y * d.x);
-      return { x: numX / den, y: numY / den };
-    };
+    const width = image.width;
+    const height = image.height;
 
-    const poly1 = [];
-    const poly2 = [];
+    const maskCanvas = document.createElement('canvas');
+    maskCanvas.width = width;
+    maskCanvas.height = height;
+    const maskCtx = maskCanvas.getContext('2d');
 
-    for (let i = 0; i < polygon.length; i++) {
-      const current = polygon[i];
-      const next = polygon[(i + 1) % polygon.length];
+    maskCtx.fillStyle = '#ffffff';
+    maskCtx.fillRect(0, 0, width, height);
 
-      const sideCurrent = getSide(current, line.start, line.end);
-      const sideNext = getSide(next, line.start, line.end);
+    maskCtx.strokeStyle = '#000000';
+    maskCtx.lineWidth = 1.5; 
+    maskCtx.lineCap = 'round';
+    maskCtx.lineJoin = 'round';
 
-      if (sideCurrent >= 0) poly1.push(current);
-      if (sideCurrent <= 0) poly2.push(current);
+    lines.forEach(line => {
+      maskCtx.beginPath();
+      maskCtx.moveTo(line.start.x, line.start.y);
+      maskCtx.lineTo(line.end.x, line.end.y);
+      maskCtx.stroke();
+    });
 
-      if (sideCurrent * sideNext < 0) {
-        const intersection = getIntersection(line.start, line.end, current, next);
-        if (intersection) {
-          poly1.push(intersection);
-          poly2.push(intersection);
+    const maskData = maskCtx.getImageData(0, 0, width, height).data;
+
+    const origCanvas = document.createElement('canvas');
+    origCanvas.width = width;
+    origCanvas.height = height;
+    const origCtx = origCanvas.getContext('2d');
+    origCtx.drawImage(image, 0, 0);
+    const origData = origCtx.getImageData(0, 0, width, height).data;
+
+    const visited = new Uint8Array(width * height);
+    const components = [];
+    const queue = new Uint32Array(width * height);
+    const pixelIndices = new Uint32Array(width * height);
+
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const idx = y * width + x;
+        
+        if (visited[idx]) continue;
+        
+        if (maskData[idx * 4] < 128) {
+          visited[idx] = 1;
+          continue;
+        }
+
+        let minX = x, maxX = x, minY = y, maxY = y;
+        let qHead = 0, qTail = 0;
+        let pCount = 0;
+        
+        queue[qTail++] = idx;
+        visited[idx] = 1;
+
+        while (qHead < qTail) {
+          const curr = queue[qHead++];
+          pixelIndices[pCount++] = curr;
+          
+          const cx = curr % width;
+          const cy = Math.floor(curr / width);
+
+          if (cx < minX) minX = cx;
+          if (cx > maxX) maxX = cx;
+          if (cy < minY) minY = cy;
+          if (cy > maxY) maxY = cy;
+
+          if (cx > 0) {
+            const n = curr - 1;
+            if (!visited[n]) {
+              visited[n] = 1;
+              if (maskData[n * 4] >= 128) queue[qTail++] = n;
+            }
+          }
+          if (cx < width - 1) {
+            const n = curr + 1;
+            if (!visited[n]) {
+              visited[n] = 1;
+              if (maskData[n * 4] >= 128) queue[qTail++] = n;
+            }
+          }
+          if (cy > 0) {
+            const n = curr - width;
+            if (!visited[n]) {
+              visited[n] = 1;
+              if (maskData[n * 4] >= 128) queue[qTail++] = n;
+            }
+          }
+          if (cy < height - 1) {
+            const n = curr + width;
+            if (!visited[n]) {
+              visited[n] = 1;
+              if (maskData[n * 4] >= 128) queue[qTail++] = n;
+            }
+          }
+        }
+
+        if (pCount > 50) {
+          components.push({
+            minX, maxX, minY, maxY,
+            pixels: pixelIndices.slice(0, pCount)
+          });
         }
       }
     }
 
-    const getArea = (poly) => {
-      let area = 0;
-      for (let i = 0; i < poly.length; i++) {
-        const j = (i + 1) % poly.length;
-        area += poly[i].x * poly[j].y - poly[j].x * poly[i].y;
+    const newPieces = components.map(comp => {
+      const compWidth = comp.maxX - comp.minX + 1;
+      const compHeight = comp.maxY - comp.minY + 1;
+      
+      const pieceCanvas = document.createElement('canvas');
+      pieceCanvas.width = compWidth;
+      pieceCanvas.height = compHeight;
+      const pieceCtx = pieceCanvas.getContext('2d');
+      const pieceImgData = pieceCtx.createImageData(compWidth, compHeight);
+      
+      for (let i = 0; i < comp.pixels.length; i++) {
+        const pIdx = comp.pixels[i];
+        const px = pIdx % width;
+        const py = Math.floor(pIdx / width);
+        
+        const destX = px - comp.minX;
+        const destY = py - comp.minY;
+        const destIdx = (destY * compWidth + destX) * 4;
+        const srcIdx = pIdx * 4;
+        
+        pieceImgData.data[destIdx] = origData[srcIdx];
+        pieceImgData.data[destIdx + 1] = origData[srcIdx + 1];
+        pieceImgData.data[destIdx + 2] = origData[srcIdx + 2];
+        pieceImgData.data[destIdx + 3] = origData[srcIdx + 3];
       }
-      return Math.abs(area / 2);
-    };
-
-    if (getArea(poly1) < 1 || getArea(poly2) < 1) {
-      return [polygon];
-    }
-
-    return [poly1, poly2];
-  };
-
-  const handleCut = () => {
-    if (!image || lines.length === 0) return;
-
-    let currentPolys = [
-      [
-        { x: 0, y: 0 },
-        { x: image.width, y: 0 },
-        { x: image.width, y: image.height },
-        { x: 0, y: image.height }
-      ]
-    ];
-
-    lines.forEach(line => {
-      let nextPolys = [];
-      currentPolys.forEach(poly => {
-        const splits = splitPolygon(poly, line);
-        nextPolys.push(...splits);
-      });
-      currentPolys = nextPolys;
+      
+      pieceCtx.putImageData(pieceImgData, 0, 0);
+      return pieceCanvas.toDataURL('image/png');
     });
 
-    const newPieces = currentPolys.map(poly => {
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-      poly.forEach(p => {
-        minX = Math.min(minX, p.x);
-        minY = Math.min(minY, p.y);
-        maxX = Math.max(maxX, p.x);
-        maxY = Math.max(maxY, p.y);
-      });
-
-      const width = maxX - minX;
-      const height = maxY - minY;
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-
-      ctx.beginPath();
-      ctx.moveTo(poly[0].x - minX, poly[0].y - minY);
-      for (let i = 1; i < poly.length; i++) {
-        ctx.lineTo(poly[i].x - minX, poly[i].y - minY);
-      }
-      ctx.closePath();
-      ctx.clip();
-
-      ctx.drawImage(image, -minX, -minY);
-      return canvas.toDataURL('image/png');
-    });
-
-    newPieces.sort((a, b) => a.length - b.length);
     setPieces(newPieces);
     setLines([]);
   };
@@ -385,6 +465,7 @@ export default function Home() {
               </div>
             ) : (
               <div 
+                ref={scrollContainerRef}
                 className="flex-1 overflow-auto p-4 grid place-items-center cursor-crosshair"
                 onMouseDown={handleMouseDown}
                 onMouseMove={handleMouseMove}
